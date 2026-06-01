@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# mspl
-=======
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 </div>
@@ -59,4 +56,3 @@ Optional Fly.io deployment:
 2. On push to `main`, the `deploy-fly` job will deploy the app automatically.
 
 The app will still be available locally at `http://localhost:3000`.
->>>>>>> fa1240aefe00862dd47c5b66b20d5f753bebcb0f
