@@ -99,6 +99,50 @@ export default function HrPortal({
   // Alias for incoming help tickets (cloud-synced)
   const helpTickets = employeeQueries || [];
 
+  const [editingSalaryId, setEditingSalaryId] = useState<string | null>(null);
+  const [salaryDraft, setSalaryDraft] = useState({ basic: 0, allowances: 0, deductions: 0 });
+
+  const handleStartEditPayroll = (emp: Employee) => {
+    const config = emp.salaryConfig || { basic: 0, allowances: 0, deductions: 0 };
+    setSalaryDraft({
+      basic: config.basic,
+      allowances: config.allowances,
+      deductions: config.deductions
+    });
+    setEditingSalaryId(emp.id);
+  };
+
+  const handleSavePayroll = () => {
+    if (!editingSalaryId) return;
+
+    const updatedEmployees = employees.map(emp => {
+      if (emp.id !== editingSalaryId) return emp;
+      return {
+        ...emp,
+        salaryConfig: {
+          basic: Number(salaryDraft.basic) || 0,
+          allowances: Number(salaryDraft.allowances) || 0,
+          deductions: Number(salaryDraft.deductions) || 0
+        }
+      };
+    });
+
+    onUpdateEmployees(updatedEmployees);
+    toast(`✓ Payroll structure updated for ${editingSalaryId}.`, 'success');
+    setEditingSalaryId(null);
+  };
+
+  const handleCancelPayrollEdit = () => {
+    setEditingSalaryId(null);
+  };
+
+  const handleSalaryDraftChange = (field: 'basic' | 'allowances' | 'deductions', value: string) => {
+    setSalaryDraft(prev => ({
+      ...prev,
+      [field]: Number(value) || 0
+    }));
+  };
+
   // --- Stub handlers for referenced UI actions ---
   const handleViewDocument = (empId: string, docKey: string, url?: string) => {
     if (url) window.open(url, '_blank');
@@ -1658,6 +1702,7 @@ export default function HrPortal({
                       {employees.filter(e => !e.isResigned).map(emp => {
                         const salaryStructure = emp.salaryConfig || { basic: 0, allowances: 0, deductions: 0 };
                         const totalNet = salaryStructure.basic + salaryStructure.allowances - salaryStructure.deductions;
+                        const isEditing = editingSalaryId === emp.id;
 
                         return (
                           <tr key={emp.id} className="hover:bg-slate-200/5 dark:hover:bg-slate-900/5">
@@ -1665,17 +1710,79 @@ export default function HrPortal({
                               <span className="font-bold text-slate-800 dark:text-slate-100 block">{emp.name}</span>
                               <span className="text-[10px] text-slate-400 font-mono">{emp.id}</span>
                             </td>
-                            <td className="py-3 px-4 font-mono font-semibold">₹{salaryStructure.basic.toLocaleString('en-IN')}</td>
-                            <td className="py-3 px-4 text-emerald-600 font-mono font-semibold">+₹{salaryStructure.allowances.toLocaleString('en-IN')}</td>
-                            <td className="py-3 px-4 text-rose-500 font-mono font-semibold">-₹{salaryStructure.deductions.toLocaleString('en-IN')}</td>
-                            <td className="py-3 px-4 text-indigo-600 dark:text-sky-400 font-mono font-black">₹{totalNet.toLocaleString('en-IN')}</td>
+                            <td className="py-3 px-4">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  value={salaryDraft.basic}
+                                  onChange={e => handleSalaryDraftChange('basic', e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-900 dark:text-slate-100"
+                                />
+                              ) : (
+                                <span className="font-mono font-semibold">₹{salaryStructure.basic.toLocaleString('en-IN')}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  value={salaryDraft.allowances}
+                                  onChange={e => handleSalaryDraftChange('allowances', e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-900 dark:text-slate-100"
+                                />
+                              ) : (
+                                <span className="text-emerald-600 font-mono font-semibold">+₹{salaryStructure.allowances.toLocaleString('en-IN')}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  value={salaryDraft.deductions}
+                                  onChange={e => handleSalaryDraftChange('deductions', e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-900 dark:text-slate-100"
+                                />
+                              ) : (
+                                <span className="text-rose-500 font-mono font-semibold">-₹{salaryStructure.deductions.toLocaleString('en-IN')}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-indigo-600 dark:text-sky-400 font-mono font-black">
+                              ₹{(isEditing ? salaryDraft.basic + salaryDraft.allowances - salaryDraft.deductions : totalNet).toLocaleString('en-IN')}
+                            </td>
                             <td className="py-3 px-4 text-center">
-                              <button 
-                                onClick={() => handleProcessPayroll?.(emp.id)}
-                                className="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-500 hover:text-white dark:hover:bg-indigo-600 rounded-lg text-[11px] font-bold transition duration-150"
-                              >
-                                Dispatch Slip
-                              </button>
+                              {isEditing ? (
+                                <div className="flex flex-col gap-2 items-center">
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={handleSavePayroll}
+                                      className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-[11px] font-bold"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      onClick={handleCancelPayrollEdit}
+                                      className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-bold"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex gap-2 justify-center">
+                                  <button
+                                    onClick={() => handleStartEditPayroll(emp)}
+                                    className="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-500 hover:text-white dark:hover:bg-indigo-600 rounded-lg text-[11px] font-bold transition duration-150"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button 
+                                    onClick={() => handleProcessPayroll?.(emp.id)}
+                                    className="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-500 hover:text-white dark:hover:bg-indigo-600 rounded-lg text-[11px] font-bold transition duration-150"
+                                  >
+                                    Dispatch Slip
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
