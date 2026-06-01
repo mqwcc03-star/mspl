@@ -54,6 +54,31 @@ export default function HrPortal({
   appendTerminalLog
 }: HrPortalProps) {
   
+  // Helper: Normalize old & new attendance log formats with defensive defaults
+  const normalizeAttendanceLog = (log: AttendanceLog): AttendanceLog => {
+    const punchInTime = log.punchIn || log.time || '--:--';
+    const statusVal = log.status || (punchInTime && punchInTime !== '--:--' ? 'Present' : 'Absent');
+    const coordsVal = log.coordinates || (
+      log.latitude !== undefined && log.longitude !== undefined && log.latitude !== 0 && log.longitude !== 0
+        ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}`
+        : undefined
+    );
+    
+    return {
+      ...log,
+      punchIn: punchInTime,
+      punchOut: log.punchOut || '--:--',
+      status: statusVal,
+      coordinates: coordsVal,
+      latitude: log.latitude || 17.3850,
+      longitude: log.longitude || 78.4867
+    };
+  };
+
+  const normalizedAttendanceLogs = attendanceLogs && attendanceLogs.length > 0 
+    ? attendanceLogs.map(normalizeAttendanceLog)
+    : [];
+  
   // High-fidelity Gateway view selectors: 'employee' | 'hr' | 'director'
   const [gatewayMode, setGatewayMode] = useState<'employee' | 'hr' | 'director'>('employee');
 
@@ -1549,22 +1574,26 @@ export default function HrPortal({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-850/50">
-                      {attendanceLogs && attendanceLogs.length > 0 ? (
-                        attendanceLogs.map(log => (
+                      {normalizedAttendanceLogs && normalizedAttendanceLogs.length > 0 ? (
+                        normalizedAttendanceLogs.map(log => (
                           <tr key={log.id} className="hover:bg-slate-200/5 dark:hover:bg-slate-900/5">
                             <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-100">{log.employeeName}</td>
                             <td className="py-3 px-4 font-mono">{log.date}</td>
                             <td className="py-3 px-4 text-emerald-600 dark:text-emerald-400 font-mono font-bold">{log.punchIn || '--:--'}</td>
                             <td className="py-3 px-4 text-rose-500 font-mono font-bold">{log.punchOut || '--:--'}</td>
                             <td className="py-3 px-4">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
-                                log.status === 'Present' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'
+                              <span className={`px-3 py-1 rounded text-[10px] font-black uppercase tracking-wide ${
+                                (log.status?.toUpperCase() === 'PRESENT' || log.status?.toUpperCase() === 'PRESENT' || log.punchIn !== '--:--')
+                                  ? 'bg-emerald-500/20 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40'
+                                  : 'bg-amber-500/20 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40'
                               }`}>
-                                {log.status ? log.status.toUpperCase() : 'UNKNOWN'}
+                                {(log.status && log.status !== 'Absent') ? log.status : (log.punchIn && log.punchIn !== '--:--' ? 'PRESENT' : log.status || 'ABSENT')}
                               </span>
                             </td>
-                            <td className="py-3 px-4 text-center font-mono text-[10px] text-slate-400">
-                              {log.coordinates ? `📍 Lat/Long: ${log.coordinates}` : '📡 Gated System Sync'}
+                            <td className="py-3 px-4 text-center font-mono text-[10px]">
+                              {log.coordinates 
+                                ? <span className="text-slate-600 dark:text-slate-300">📍 {log.coordinates}</span>
+                                : <span className="text-slate-400 dark:text-slate-500">📡 Gated System Sync</span>}
                             </td>
                           </tr>
                         ))
@@ -1844,7 +1873,7 @@ export default function HrPortal({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {attendanceLogs?.map(log => (
+                      {normalizedAttendanceLogs?.map(log => (
                         <tr key={log.id} className="hover:bg-slate-50/50">
                           <td className="py-3 px-3">
                             <span className="font-bold text-slate-800 block">{log.employeeName}</span>

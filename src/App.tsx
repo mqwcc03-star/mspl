@@ -117,14 +117,73 @@ export default function App() {
 
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>(() => {
     const saved = localStorage.getItem('mspl_attendance_logs');
+    let logs: AttendanceLog[] = [];
+    
     if (saved) {
       try {
-        return JSON.parse(saved);
+        logs = JSON.parse(saved);
       } catch {}
     }
-    return [
-      { id: 'att-1', employeeId: 'MSPL-EMP-101', employeeName: 'Ajay Kumar', date: '2026-05-23', time: '09:12 AM', latitude: 16.3067, longitude: 80.4365, isManualOverride: false, selfieUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' }
+    
+    // Migration: Normalize old records to have all required fields
+    const migratedLogs = logs.length > 0 ? logs.map(log => ({
+      ...log,
+      time: log.time || log.punchIn || '09:00 AM',
+      punchIn: log.punchIn || log.time || '09:00 AM',
+      status: log.status || (log.punchIn || log.time ? 'Present' : 'Absent'),
+      coordinates: log.coordinates || (log.latitude !== undefined && log.longitude !== undefined 
+        ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}` 
+        : undefined),
+      latitude: log.latitude || 17.3850,
+      longitude: log.longitude || 78.4867,
+      isManualOverride: log.isManualOverride ?? false
+    })) : [
+      {
+        id: 'att-1',
+        employeeId: 'MSPL-EMP-101',
+        employeeName: 'Ajay Kumar',
+        date: '2026-06-01',
+        time: '09:12 AM',
+        punchIn: '09:12 AM',
+        status: 'Present',
+        coordinates: '17.3850, 78.4867',
+        latitude: 17.3850,
+        longitude: 78.4867,
+        isManualOverride: false,
+        selfieUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+      },
+      {
+        id: 'att-2',
+        employeeId: 'MSPL-EMP-102',
+        employeeName: 'Ramesh Shinde',
+        date: '2026-06-01',
+        time: '09:05 AM',
+        punchIn: '09:05 AM',
+        status: 'Present',
+        coordinates: '17.3850, 78.4867',
+        latitude: 17.3850,
+        longitude: 78.4867,
+        isManualOverride: false,
+        selfieUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+      },
+      {
+        id: 'att-3',
+        employeeId: 'MSPL-EMP-101',
+        employeeName: 'Ajay Kumar',
+        date: '2026-05-31',
+        time: '09:15 AM',
+        punchIn: '09:15 AM',
+        punchOut: '05:30 PM',
+        status: 'Present',
+        coordinates: '17.3850, 78.4867',
+        latitude: 17.3850,
+        longitude: 78.4867,
+        isManualOverride: false,
+        selfieUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+      }
     ];
+    
+    return migratedLogs;
   });
 
   const [payslips, setPayslips] = useState<Payslip[]>(() => {
@@ -318,12 +377,16 @@ export default function App() {
   const handleEmployeeClockIn = (selfieUrl: string, lat: number, lng: number, customDate?: string, customTime?: string) => {
     if (!currentEmployee) return;
     const isManual = !!(customDate || customTime);
+    const logTime = customTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newLog: AttendanceLog = {
       id: `att-selfie-${Date.now()}`,
       employeeId: currentEmployee.id,
       employeeName: currentEmployee.name,
       date: customDate || new Date().toISOString().substring(0, 10),
-      time: customTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: logTime,
+      punchIn: logTime,
+      status: 'Present',
+      coordinates: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
       selfieUrl: selfieUrl || undefined,
       latitude: lat,
       longitude: lng,
