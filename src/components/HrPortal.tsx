@@ -1675,7 +1675,7 @@ export default function HrPortal({
                 <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-dashed border-slate-205 dark:border-slate-850">
                   <div>
                     <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">MSPL Structural Payroll Generation</h4>
-                    <p className="text-xs text-slate-455">Review employee basic pay structure, custom allowances, standard deductions, and compute payouts.</p>
+                    <p className="text-xs text-slate-455">Review employee basic pay structure, custom allowances, standard deductions, and compute payouts. Click a row or the Edit button to unlock manual entry for payroll values.</p>
                   </div>
                   <button
                     onClick={exportPayrollCSV}
@@ -1705,7 +1705,11 @@ export default function HrPortal({
                         const isEditing = editingSalaryId === emp.id;
 
                         return (
-                          <tr key={emp.id} className="hover:bg-slate-200/5 dark:hover:bg-slate-900/5">
+                          <tr
+                            key={emp.id}
+                            onClick={() => !isEditing && handleStartEditPayroll(emp)}
+                            className="hover:bg-slate-200/5 dark:hover:bg-slate-900/5 cursor-pointer"
+                          >
                             <td className="py-3 px-4">
                               <span className="font-bold text-slate-800 dark:text-slate-100 block">{emp.name}</span>
                               <span className="text-[10px] text-slate-400 font-mono">{emp.id}</span>
@@ -1714,6 +1718,7 @@ export default function HrPortal({
                               {isEditing ? (
                                 <input
                                   type="number"
+                                  autoFocus
                                   value={salaryDraft.basic}
                                   onChange={e => handleSalaryDraftChange('basic', e.target.value)}
                                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-900 dark:text-slate-100"
@@ -1754,13 +1759,19 @@ export default function HrPortal({
                                 <div className="flex flex-col gap-2 items-center">
                                   <div className="flex gap-2">
                                     <button
-                                      onClick={handleSavePayroll}
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        handleSavePayroll();
+                                      }}
                                       className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-[11px] font-bold"
                                     >
                                       Save
                                     </button>
                                     <button
-                                      onClick={handleCancelPayrollEdit}
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        handleCancelPayrollEdit();
+                                      }}
                                       className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-bold"
                                     >
                                       Cancel
