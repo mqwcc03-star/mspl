@@ -57,21 +57,23 @@ export default function HrPortal({
   // Helper: Normalize old & new attendance log formats with defensive defaults
   const normalizeAttendanceLog = (log: AttendanceLog): AttendanceLog => {
     const punchInTime = log.punchIn || log.time || '--:--';
-    const statusVal = log.status || (punchInTime && punchInTime !== '--:--' ? 'Present' : 'Absent');
+    const statusVal = log.status && log.status.toUpperCase() !== 'UNKNOWN'
+      ? log.status
+      : (punchInTime !== '--:--' ? 'Present' : 'Absent');
     const coordsVal = log.coordinates || (
       log.latitude !== undefined && log.longitude !== undefined && log.latitude !== 0 && log.longitude !== 0
         ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}`
         : undefined
     );
-    
+
     return {
       ...log,
       punchIn: punchInTime,
       punchOut: log.punchOut || '--:--',
       status: statusVal,
       coordinates: coordsVal,
-      latitude: log.latitude || 17.3850,
-      longitude: log.longitude || 78.4867
+      latitude: log.latitude ?? 17.3850,
+      longitude: log.longitude ?? 78.4867
     };
   };
 
@@ -1566,6 +1568,7 @@ export default function HrPortal({
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-900 text-slate-400 border-b border-slate-202 dark:border-slate-850 uppercase font-mono tracking-widest text-[9.5px] font-bold">
                         <th className="py-3 px-4">Operator</th>
+                        <th className="py-3 px-4 text-center">Photo</th>
                         <th className="py-3 px-4">Date</th>
                         <th className="py-3 px-4">Punch In</th>
                         <th className="py-3 px-4">Punch Out</th>
@@ -1578,6 +1581,18 @@ export default function HrPortal({
                         normalizedAttendanceLogs.map(log => (
                           <tr key={log.id} className="hover:bg-slate-200/5 dark:hover:bg-slate-900/5">
                             <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-100">{log.employeeName}</td>
+                            <td className="py-3 px-4 text-center">
+                              {log.selfieUrl ? (
+                                <img 
+                                  src={log.selfieUrl} 
+                                  alt={log.employeeName}
+                                  className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-slate-700 cursor-pointer hover:ring-2 hover:ring-indigo-500 transition-all"
+                                  title={`${log.employeeName} - ${log.date} ${log.punchIn}`}
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 text-[10px] font-bold">—</div>
+                              )}
+                            </td>
                             <td className="py-3 px-4 font-mono">{log.date}</td>
                             <td className="py-3 px-4 text-emerald-600 dark:text-emerald-400 font-mono font-bold">{log.punchIn || '--:--'}</td>
                             <td className="py-3 px-4 text-rose-500 font-mono font-bold">{log.punchOut || '--:--'}</td>
@@ -1599,7 +1614,7 @@ export default function HrPortal({
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="py-8 text-center text-slate-400 italic">
+                          <td colSpan={7} className="py-8 text-center text-slate-400 italic">
                             No operational field check-ins processed today.
                           </td>
                         </tr>
@@ -1866,6 +1881,7 @@ export default function HrPortal({
                     <thead>
                       <tr className="bg-slate-50 text-slate-400 border-b uppercase font-mono tracking-widest text-[9.5px]">
                         <th className="py-2.5 px-3">Staff Details</th>
+                        <th className="py-2.5 px-3 text-center">Photo</th>
                         <th className="py-2.5 px-3 font-mono">Date</th>
                         <th className="py-2.5 px-3">Sign-In time</th>
                         <th className="py-2.5 px-3">Override Status</th>
@@ -1878,6 +1894,18 @@ export default function HrPortal({
                           <td className="py-3 px-3">
                             <span className="font-bold text-slate-800 block">{log.employeeName}</span>
                             <span className="text-[10px] text-slate-400 block font-mono font-bold">{log.employeeId}</span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {log.selfieUrl ? (
+                              <img 
+                                src={log.selfieUrl} 
+                                alt={log.employeeName}
+                                className="w-9 h-9 rounded-lg object-cover border border-slate-200 cursor-pointer hover:ring-2 hover:ring-indigo-500 transition-all mx-auto"
+                                title={`${log.employeeName} - ${log.date}`}
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-lg bg-slate-200 flex items-center justify-center text-slate-400 text-[9px] font-bold mx-auto">—</div>
+                            )}
                           </td>
                           <td className="py-3 px-3 font-mono text-slate-500">{log.date}</td>
                           <td className="py-3 px-3 font-mono font-bold text-indigo-600">{log.time}</td>

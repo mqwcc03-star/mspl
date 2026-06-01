@@ -126,18 +126,30 @@ export default function App() {
     }
     
     // Migration: Normalize old records to have all required fields
-    const migratedLogs = logs.length > 0 ? logs.map(log => ({
-      ...log,
-      time: log.time || log.punchIn || '09:00 AM',
-      punchIn: log.punchIn || log.time || '09:00 AM',
-      status: log.status || (log.punchIn || log.time ? 'Present' : 'Absent'),
-      coordinates: log.coordinates || (log.latitude !== undefined && log.longitude !== undefined 
-        ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}` 
-        : undefined),
-      latitude: log.latitude || 17.3850,
-      longitude: log.longitude || 78.4867,
-      isManualOverride: log.isManualOverride ?? false
-    })) : [
+    const migratedLogs = logs.length > 0 ? logs.map(log => {
+      const punchInTime = log.punchIn || log.time || '--:--';
+      const normalizedStatus = log.status && log.status.toUpperCase() !== 'UNKNOWN'
+        ? log.status
+        : (punchInTime !== '--:--' ? 'Present' : 'Absent');
+      const normalizedCoords = log.coordinates || (
+        log.latitude !== undefined && log.longitude !== undefined
+          ? `${log.latitude.toFixed(4)}, ${log.longitude.toFixed(4)}`
+          : undefined
+      );
+
+      return {
+        ...log,
+        time: log.time || punchInTime,
+        punchIn: punchInTime,
+        punchOut: log.punchOut || '--:--',
+        status: normalizedStatus,
+        coordinates: normalizedCoords,
+        latitude: log.latitude ?? 17.3850,
+        longitude: log.longitude ?? 78.4867,
+        isManualOverride: log.isManualOverride ?? false,
+        selfieUrl: log.selfieUrl || undefined
+      };
+    }) : [
       {
         id: 'att-1',
         employeeId: 'MSPL-EMP-101',
