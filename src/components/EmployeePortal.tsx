@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import CameraStream from './CameraStream';
 import DocumentViewer from './DocumentViewer';
+import { supabase } from '../supabaseClient';
 import { generatePayslipPDF } from '../lib/pdfHelper';
 
 interface EmployeePortalProps {
@@ -74,16 +75,33 @@ export default function EmployeePortal({
   const [customDocLabel, setCustomDocLabel] = useState('');
   const [isAddingCustomDoc, setIsAddingCustomDoc] = useState(false);
 
-  // Recycle Bin State
-  const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>(() => {
-    const saved = localStorage.getItem('mspl_recycle_bin');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Recycle Bin State (cloud-backed)
+  const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>([]);
 
-  // Hot Sync Recycle Bin
+  // Load recycle bin items for this employee from Supabase
   useEffect(() => {
-    localStorage.setItem('mspl_recycle_bin', JSON.stringify(recycleBin));
-  }, [recycleBin]);
+    let mounted = true;
+    const fetchBin = async () => {
+      try {
+        const { data, error } = await supabase.from('recycle_bin').select('*').order('createdAt', { ascending: false });
+        if (error) throw error;
+        if (!mounted) return;
+        // filter client-side for items related to this employee (originalPath.employeeId)
+        const items = (data || []).filter((it: any) => {
+          try {
+            return it.originalpath && (it.originalpath.employeeId === employee.id || it.originalPath?.employeeId === employee.id);
+          } catch {
+            return false;
+          }
+        });
+        setRecycleBin(items as RecycleBinItem[]);
+      } catch (err: any) {
+        console.error('Failed to load recycle bin', err);
+      }
+    };
+    fetchBin();
+    return () => { mounted = false; };
+  }, [employee.id]);
 
   // Personal Payslip selection
   const employeePayslips = payslips.filter(p => p.employeeId.toUpperCase() === employee.id.toUpperCase());
@@ -235,15 +253,27 @@ export default function EmployeePortal({
 
     const remaining = list.filter(f => f.key !== docKey);
 
-    // Save
+    // Save local employee state (in-memory/app state)
     onUpdateEmployee({
       ...employee,
       [docKey]: undefined, // clear legacy status
       uploadedFilesList: remaining
     });
 
-    setRecycleBin(prev => [binItem, ...prev]);
-    toast(`✓ File "${targetFile.label}" moved to Recycle Bin. You can restore it anytime.`, "warning");
+    // Persist bin item to Supabase
+    (async () => {
+      try {
+        const { data: inserted, error } = await supabase.from('recycle_bin').insert([binItem]).select().single();
+        if (error) throw error;
+        setRecycleBin(prev => [inserted as RecycleBinItem, ...prev]);
+        toast(`✓ File "${targetFile.label}" moved to Recycle Bin. You can restore it anytime.`, "warning");
+      } catch (err: any) {
+        console.error('Failed to send to recycle bin', err);
+        // still update local UI to reflect deletion
+        setRecycleBin(prev => [binItem, ...prev]);
+        toast('Failed to send file to cloud recycle bin. Saved locally in session.', 'error');
+      }
+    })();
   };
 
   // Restoring document from Recycle Bin
@@ -259,8 +289,20 @@ export default function EmployeePortal({
         uploadedFilesList: [...list, restoredFile]
       });
 
-      setRecycleBin(prev => prev.filter(item => item.id !== binItem.id));
-      toast(`✓ Document "${restoredFile.label}" successfully restored from Bin!`, "success");
+      // Remove from Supabase recycle_bin
+      (async () => {
+        try {
+          const { error } = await supabase.from('recycle_bin').delete().eq('id', binItem.id);
+          if (error) throw error;
+          setRecycleBin(prev => prev.filter(item => item.id !== binItem.id));
+          toast(`✓ Document "${restoredFile.label}" successfully restored from Bin!`, "success");
+        } catch (err: any) {
+          console.error('Failed to remove from recycle bin', err);
+          // fallback: still remove locally
+          setRecycleBin(prev => prev.filter(item => item.id !== binItem.id));
+          toast(`Document restored locally but failed to remove cloud recycle record.`, 'warning');
+        }
+      })();
     } catch {
       toast("Could not parsing restored document data.", "error");
     }
@@ -268,8 +310,19 @@ export default function EmployeePortal({
 
   // Permanent Delete
   const handlePermanentDelete = (idx: string) => {
-    setRecycleBin(prev => prev.filter(item => item.id !== idx));
-    toast("✓ Document permanently deleted from system nodes.", "info");
+    (async () => {
+      try {
+        const { error } = await supabase.from('recycle_bin').delete().eq('id', idx);
+        if (error) throw error;
+        setRecycleBin(prev => prev.filter(item => item.id !== idx));
+        toast("✓ Document permanently deleted from system nodes.", "info");
+      } catch (err: any) {
+        console.error('Failed to permanently delete recycle item', err);
+        // fallback local removal
+        setRecycleBin(prev => prev.filter(item => item.id !== idx));
+        toast('Failed to remove file from cloud recycle bin. Local UI updated.', 'warning');
+      }
+    })();
   };
 
   const docUploads = [

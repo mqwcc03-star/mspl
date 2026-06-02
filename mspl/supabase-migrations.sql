@@ -115,6 +115,21 @@ CREATE TABLE IF NOT EXISTS public.system_config (
   updatedAt TIMESTAMP DEFAULT NOW()
 );
 
+-- 9. Employee Documents Table (separate table for uploaded files)
+CREATE TABLE IF NOT EXISTS public.employee_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id TEXT REFERENCES public.employees(id),
+  key TEXT,
+  label TEXT,
+  name TEXT,
+  file_type TEXT,
+  storage_path TEXT,
+  file_data TEXT,
+  uploaded_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  created_by UUID
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_hr_users_email ON public.hr_users(email);
 CREATE INDEX IF NOT EXISTS idx_employees_status ON public.employees(status);
@@ -133,6 +148,20 @@ ALTER TABLE public.finance_ledger DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.recycle_bin DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_queries DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_config DISABLE ROW LEVEL SECURITY;
+-- For employee_documents we enable RLS and add policies to allow authenticated users
+ALTER TABLE public.employee_documents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated select on employee_documents"
+  ON public.employee_documents FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Allow authenticated insert on employee_documents"
+  ON public.employee_documents FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Allow authenticated delete on employee_documents"
+  ON public.employee_documents FOR DELETE
+  USING (auth.role() = 'authenticated');
 
 -- Insert default system config
 INSERT INTO public.system_config (id, mdPasscode, companyName) 
