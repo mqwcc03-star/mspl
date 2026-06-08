@@ -158,20 +158,33 @@ export default function EmployeePortal({
   };
 
   // Safe file reader helper
-  const processFileUpload = (file: File, key: string, label: string) => {
+  const processFileUpload = async (file: File, key: string, label: string) => {
     setUploadProgress(key);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64Data = reader.result as string;
+    try {
+      const path = `${employee.id}/${key}_${Date.now()}_${file.name}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage.from('uploads').upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      // Get public URL for the uploaded file
+      const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(path);
+      const publicUrl = (publicData as any)?.publicUrl || '';
+
       const newFileObj: DocumentFile = {
         key,
         label,
         name: file.name,
         type: file.type || 'application/octet-stream',
-        data: base64Data,
+        data: publicUrl,
         uploadedAt: new Date().toLocaleDateString('en-US'),
         status: 'uploaded'
       };
+
+      // Persist a document row for server-side indexing
+      try {
+        await supabase.from('employee_documents').insert([{ employee_id: employee.id, key, label, name: file.name, file_type: file.type, storage_path: path, file_data: publicUrl }]);
+      } catch (err) {
+        console.warn('Failed to create employee_documents row', err);
+      }
 
       const currentFiles = employee.uploadedFilesList || [];
       const filtered = currentFiles.filter(f => f.key !== key);
@@ -184,13 +197,12 @@ export default function EmployeePortal({
       });
 
       setUploadProgress(null);
-      toast(`✓ Document "${label}" saved and queued for HR review.`, "success");
-    };
-    reader.onerror = () => {
+      toast(`✓ Document "${label}" uploaded to cloud and queued for HR review.`, "success");
+    } catch (err: any) {
+      console.error('Upload failed', err);
       setUploadProgress(null);
-      toast("Failed to process file binary selection.", "error");
-    };
-    reader.readAsDataURL(file);
+      toast("Failed to upload file to cloud storage.", "error");
+    }
   };
 
   // Custom file upload manual handler
