@@ -267,50 +267,6 @@ export default function HrPortal({
   const [activeTab, setActiveTab] = useState<'employees' | 'verification' | 'attendance' | 'payroll' | 'helpdesk'>('employees');
 
   const [replyTexts, setReplyTexts] = useState<{[queryId: string]: string}>({});
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-
-  const handleTicketAction = async (queryId: string, action: 'approve' | 'cancel') => {
-    const updated = (employeeQueries || []).map(q => {
-      if (q.id !== queryId) return q;
-      return {
-        ...q,
-        status: 'resolved' as const,
-        hrResponse: action === 'approve'
-          ? 'Approved by HR helpdesk terminal.'
-          : 'Cancelled by HR helpdesk terminal.',
-        hrRespondedAt: new Date().toLocaleString('en-US', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
-      };
-    });
-
-    try {
-      await supabase.from('employee_queries').update({
-        status: 'resolved',
-        hrResponse: action === 'approve'
-          ? 'Approved by HR helpdesk terminal.'
-          : 'Cancelled by HR helpdesk terminal.',
-        hrRespondedAt: new Date().toLocaleString('en-US', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
-      }).eq('id', queryId);
-      onUpdateEmployeeQueries(updated);
-      toast(`✓ Ticket ${action === 'approve' ? 'approved' : 'cancelled'} successfully.`, 'success');
-      setSelectedTicketId(null);
-    } catch (err: any) {
-      toast(err?.message || 'Failed to update ticket status.', 'error');
-    }
-  };
 
   const handleReplyQuery = async (queryId: string) => {
     const txt = replyTexts[queryId];
@@ -1856,54 +1812,6 @@ export default function HrPortal({
                   <p className="text-xs text-slate-455">Review real-time dynamic support tickets submitted by offsite tower engineering crews.</p>
                 </div>
 
-                {selectedTicketId && (() => {
-                  const selectedTicket = helpTickets.find(ticket => ticket.id === selectedTicketId);
-                  if (!selectedTicket) return null;
-                  return (
-                    <div className="rounded-3xl border border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/80 dark:bg-indigo-950/30 p-4 shadow-sm space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-[0.25em] text-indigo-700 dark:text-indigo-300 font-black">Ticket Detail View</p>
-                          <h5 className="text-sm font-black text-slate-900 dark:text-white">{selectedTicket.issueDescription || selectedTicket.queryText}</h5>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTicketId(null)}
-                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 text-xs font-bold hover:bg-white dark:hover:bg-slate-950"
-                        >
-                          Close
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600 dark:text-slate-300">
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Ticket ID:</span> {selectedTicket.id}</p>
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Reported by:</span> {selectedTicket.reportedBy || selectedTicket.employeeName}</p>
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Employee ID:</span> {selectedTicket.employeeId}</p>
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Project:</span> {selectedTicket.projectName}</p>
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Priority:</span> {selectedTicket.priority}</p>
-                        <p><span className="font-bold text-slate-800 dark:text-slate-100">Status:</span> {selectedTicket.status}</p>
-                        <p className="sm:col-span-2"><span className="font-bold text-slate-800 dark:text-slate-100">Issue:</span> {selectedTicket.queryText}</p>
-                        <p className="sm:col-span-2"><span className="font-bold text-slate-800 dark:text-slate-100">Submitted:</span> {selectedTicket.submittedAt || selectedTicket.timestamp}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleTicketAction(selectedTicket.id, 'approve')}
-                          className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm"
-                        >
-                          Approve Ticket
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleTicketAction(selectedTicket.id, 'cancel')}
-                          className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-sm"
-                        >
-                          Cancel Ticket
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {helpTickets && helpTickets.length > 0 ? (
                     helpTickets.map(ticket => (
@@ -1916,33 +1824,10 @@ export default function HrPortal({
                             {ticket.priority} Priority
                           </span>
                         </div>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{ticket.issueDescription || ticket.queryText}</p>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{ticket.issueDescription}</p>
                         <div className="flex justify-between items-center text-[10px] text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-900">
-                          <span>Reported by: <strong>{ticket.reportedBy || ticket.employeeName}</strong></span>
-                          <span>{ticket.timestamp || ticket.submittedAt}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTicketId(ticket.id)}
-                            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold hover:bg-slate-50 dark:hover:bg-slate-900"
-                          >
-                            View Ticket
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTicketAction(ticket.id, 'approve')}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTicketAction(ticket.id, 'cancel')}
-                            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black"
-                          >
-                            Cancel
-                          </button>
+                          <span>Reported by: <strong>{ticket.reportedBy}</strong></span>
+                          <span>{ticket.timestamp}</span>
                         </div>
                       </div>
                     ))
