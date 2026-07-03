@@ -11,7 +11,10 @@ import {
   MapPin, Eye, Camera, ShieldAlert, Award, FileText, ClipboardList, TrendingUp, Settings, Trash, CheckCircle, Check,
   Upload, HelpCircle
 } from 'lucide-react';
-import { supabase } from '../supabaseClient';
+import { firebaseFirestore, firebaseAuth, firebaseStorage } from '../firebaseClient';
+import { collection, getDocs, query as fsQuery, where as fsWhere, doc as fsDoc, addDoc, setDoc, updateDoc, deleteDoc, orderBy as fsOrderBy } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import DocumentViewer from './DocumentViewer';
 import { generatePayslipPDF } from '../lib/pdfHelper';
 interface HrPortalProps {
@@ -171,21 +174,18 @@ export default function HrPortal({
     }
 
     try {
-      const { data, error: authError } = await supabase.auth.signUp({ email: mdDirectEmail, password: mdDirectPass });
-      if (authError) throw authError;
+      const userCred = await createUserWithEmailAndPassword(firebaseAuth, mdDirectEmail, mdDirectPass);
+      const uid = userCred.user.uid;
 
       const newHr: HrUser = {
+        id: uid,
         email: mdDirectEmail,
         password: mdDirectPass,
         verified: true
       } as any;
 
-      const { data: insertedHr, error: insertError } = await supabase.from('hr_users').insert([newHr]).select().single();
-      if (insertError) throw insertError;
-
-      if (insertedHr) {
-        setRegisteredHrsList(prev => [...prev, insertedHr]);
-      }
+      await setDoc(fsDoc(firebaseFirestore, 'hr_users', uid), newHr);
+      setRegisteredHrsList(prev => [...prev, newHr]);
       toast('✓ HR account created and certified by the Director.', 'success');
       setMdDirectEmail('');
       setMdDirectPass('');
@@ -200,8 +200,7 @@ export default function HrPortal({
       const hr = registeredHrsList.find(h => h.id === identifier || h.email === identifier);
       if (!hr || !hr.id) return toast('HR user not found.', 'error');
 
-      const { error } = await supabase.from('hr_users').update({ verified: true }).eq('id', hr.id);
-      if (error) throw error;
+      await updateDoc(fsDoc(firebaseFirestore, 'hr_users', hr.id), { verified: true });
       setRegisteredHrsList(prev => prev.map(item => item.id === hr.id ? { ...item, verified: true } : item));
       toast('✓ HR Approved via cloud.', 'success');
     } catch (err: any) {
@@ -225,24 +224,26 @@ export default function HrPortal({
 
   useEffect(() => {
     const fetchHrUsers = async () => {
-      const { data, error } = await supabase.from('hr_users').select('*');
-      if (error) {
-        console.error('Failed to load HR users', error);
-        return;
+      try {
+        const snap = await getDocs(collection(firebaseFirestore, 'hr_users'));
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setRegisteredHrsList(data ?? []);
+      } catch (err) {
+        console.error('Failed to load HR users', err);
       }
-      setRegisteredHrsList(data ?? []);
     };
     fetchHrUsers();
   }, []);
 
   useEffect(() => {
     const fetchFinanceRecords = async () => {
-      const { data, error } = await supabase.from('finance_ledger').select('*');
-      if (error) {
-        console.error('Failed to load finance records', error);
-        return;
+      try {
+        const snap = await getDocs(collection(firebaseFirestore, 'finance_ledger'));
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setFinanceRecords(data ?? []);
+      } catch (err) {
+        console.error('Failed to load finance records', err);
       }
-      setFinanceRecords(data ?? []);
     };
     fetchFinanceRecords();
   }, []);
@@ -290,7 +291,7 @@ export default function HrPortal({
     });
 
     try {
-      await supabase.from('employee_queries').update({
+      await updateDoc(fsDoc(firebaseFirestore, 'employee_queries', queryId), {
         status: 'resolved',
         hrResponse: action === 'approve'
           ? 'Approved by HR helpdesk terminal.'
@@ -303,7 +304,7 @@ export default function HrPortal({
           minute: '2-digit',
           hour12: true
         })
-      }).eq('id', queryId);
+      });
       onUpdateEmployeeQueries(updated);
       toast(`✓ Ticket ${action === 'approve' ? 'approved' : 'cancelled'} successfully.`, 'success');
       setSelectedTicketId(null);
@@ -340,12 +341,11 @@ export default function HrPortal({
       // Find the specific changed item to push up to the cloud collection
       const targetQuery = updated.find(q => q.id === queryId);
       if (targetQuery) {
-        const { error } = await supabase.from('employee_queries').update({
+        await updateDoc(fsDoc(firebaseFirestore, 'employee_queries', queryId), {
           status: 'resolved',
           hrResponse: targetQuery.hrResponse,
           hrRespondedAt: targetQuery.hrRespondedAt
-        }).eq('id', queryId);
-        if (error) throw error;
+        });
       }
       toast("✓ Resolved query and dispatched response back to the cloud console.", "success");
     } catch (err: any) {
@@ -418,13 +418,13 @@ export default function HrPortal({
   const [overrideDate, setOverrideDate] = useState(new Date().toISOString().substring(0, 10));
   const [overrideTime, setOverrideTime] = useState('09:30 AM');
 
-  // Email/password auth will use Supabase signUp / signInWithPassword flows
+  // Email/password auth will use Firebase Auth signUp / signIn flows
 
 
   const handleMdDirectEmailInputChange = (value: string) => {
     setMdDirectEmail(value);
   };
-  // Email/password auth will use Supabase signUp / signInWithPassword flows
+  // Email/password auth will use Firebase Auth signUp / signIn flows
 
   // --- 1. Employee Workspace Login ---
   const handleEmployeeLogin = (e: React.FormEvent) => {
@@ -473,23 +473,20 @@ export default function HrPortal({
     setIsProcessingAuth(true);
     setAuthStatus('Creating account...');
     try {
-      const { data, error: authError } = await supabase.auth.signUp({ email: emailInput, password: passwordInput });
-      if (authError) throw authError;
+      const userCred = await createUserWithEmailAndPassword(firebaseAuth, emailInput, passwordInput);
+      const uid = userCred.user.uid;
 
       const newHr: HrUser = {
+        id: uid,
         email: emailInput,
         password: passwordInput,
         verified: false
       } as any;
 
-      // Add the new HR registration to the 'hr_users' table in Supabase and return the created row
-      const { data: insertedHr, error: insertError } = await supabase.from('hr_users').insert([newHr]).select().single();
-      if (insertError) throw insertError;
+      await setDoc(fsDoc(firebaseFirestore, 'hr_users', uid), newHr);
 
       // Immediately reflect the new HR in local state so the user can proceed without a full reload
-      if (insertedHr) {
-        setRegisteredHrsList(prev => [...prev, insertedHr]);
-      }
+      setRegisteredHrsList(prev => [...prev, newHr]);
 
       toast('✓ HR Setup Submitted! Please request your Managing Director to verify this registration.', 'success');
       setAuthMode('login');
@@ -499,8 +496,8 @@ export default function HrPortal({
       setAuthStatus('');
     } catch (error: any) {
       console.error('[HR REGISTER] ', error);
-      // Fallback for Supabase projects that disallow direct signups or enforce email policies.
-      // Create a demo-only hr_users row so the registration can proceed for local/demo use.
+      // Fallback for hosted auth policies that disallow direct signups.
+      // Create a demo-only hr_users row in Firestore so registration can proceed for local/demo use.
       if (error?.code === 'email_address_invalid' || /invalid email/i.test(error?.message || '')) {
         try {
           const newHr: HrUser = {
@@ -509,8 +506,8 @@ export default function HrPortal({
             verified: false,
             demoOnly: true as any
           } as any;
-          const { data: insertedHr, error: insertError } = await supabase.from('hr_users').insert([newHr]).select().single();
-          if (!insertedHr || insertError) throw insertError || new Error('Failed to insert demo HR');
+          const ref = await addDoc(collection(firebaseFirestore, 'hr_users'), newHr);
+          const insertedHr = { id: ref.id, ...newHr };
           setRegisteredHrsList(prev => [...prev, insertedHr]);
           toast('✓ HR Setup submitted in demo mode. Ask MD to verify in cloud console.', 'success');
           setAuthMode('login');
@@ -537,25 +534,18 @@ export default function HrPortal({
     setIsProcessingAuth(true);
     setAuthStatus('Signing in...');
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: emailInput, password: passwordInput });
-      if (error) throw error;
+      await signInWithEmailAndPassword(firebaseAuth, emailInput, passwordInput);
       // Fetch authoritative HR registry record from the cloud to avoid relying on possibly stale in-memory lists
-      const { data: foundHr, error: hrFetchError } = await supabase.from('hr_users').select('*').eq('email', emailInput).single();
-      if (hrFetchError) {
-        // If not found, show a user-friendly message
-        if ((hrFetchError as any).code === 'PGRST116') {
-          toast('HR registry not found. Please contact admin.', 'error');
-          return;
-        }
-        throw hrFetchError;
-      }
+      const q = fsQuery(collection(firebaseFirestore, 'hr_users'), fsWhere('email', '==', emailInput));
+      const snap = await getDocs(q);
+      const foundHr = snap.docs.length > 0 ? { id: snap.docs[0].id, ...snap.docs[0].data() } : null;
 
       if (!foundHr || !foundHr.verified) {
         toast('⚠️ Approval Needed: This HR Setup is pending certification by your Managing Director or Director.', 'warning');
         return;
       }
 
-      // Set in-memory HR session; persistence handled by Supabase session
+      // Set in-memory HR session
       setHrUser(foundHr as HrUser);
       setIsHrLoggedIn(true);
       appendTerminalLog && appendTerminalLog(`[HR] HR login successful: ${emailInput}`);
@@ -564,11 +554,13 @@ export default function HrPortal({
       setAuthStatus('');
     } catch (error: any) {
       console.error('[HR LOGIN] ', error);
-      // Fallback demo auth: if Supabase auth sign-in fails due to email policy, attempt table-based auth
+      // Fallback demo auth: if Firebase Auth sign-in fails due to email policy, attempt table-based auth
       if (error?.code === 'email_address_invalid' || /invalid email/i.test(error?.message || '')) {
         try {
-          const { data: foundHr, error: hrFetchError } = await supabase.from('hr_users').select('*').eq('email', emailInput).single();
-          if (hrFetchError || !foundHr) {
+          const q = fsQuery(collection(firebaseFirestore, 'hr_users'), fsWhere('email', '==', emailInput));
+          const snap = await getDocs(q);
+          const foundHr = snap.docs.length > 0 ? { id: snap.docs[0].id, ...snap.docs[0].data() } : null;
+          if (!foundHr) {
             toast('HR registry not found. Please contact admin.', 'error');
             return;
           }
@@ -611,12 +603,15 @@ export default function HrPortal({
       // Attempt to fetch MD passcode from cloud; fallback to defaults if DB query fails
       let cloudPasscode = 'MD-DIRECTOR-2026'; // hardcoded fallback
       try {
-        const { data: configData, error } = await supabase.from('system_config').select('mdPasscode').eq('id', 'auth').single();
-        if (error) {
-          // Log DB error for debugging but don't throw — use fallback passcode instead
-          console.warn('[MD LOGIN] system_config query failed, using fallback passcode:', error?.message);
-        } else if (configData?.mdPasscode) {
-          cloudPasscode = configData.mdPasscode;
+        try {
+          const snap = await getDocs(collection(firebaseFirestore, 'system_config'));
+          const authDoc = snap.docs.find(d => d.id === 'auth');
+          if (authDoc) {
+            const cfg: any = authDoc.data();
+            if (cfg?.mdPasscode) cloudPasscode = cfg.mdPasscode;
+          }
+        } catch (err) {
+          console.warn('[MD LOGIN] system_config query failed, using fallback passcode:', err);
         }
       } catch (dbErr) {
         console.warn('[MD LOGIN] DB error during system_config fetch:', dbErr);
@@ -672,9 +667,8 @@ export default function HrPortal({
     
     try {
       if (editingEmployee) {
-        const { error } = await supabase.from('employees').update({
+        await updateDoc(fsDoc(firebaseFirestore, 'employees', editingEmployee.id), {
           name: newName.trim(),
-          
           password: newPass,
           familyDetails: newFamily,
           address: newAddress,
@@ -683,8 +677,7 @@ export default function HrPortal({
             sick: newSickLeave,
             annual: newAnnualLeave
           }
-        }).eq('id', editingEmployee.id);
-        if (error) throw error;
+        });
         toast(`✓ Cloud records updated for ${newName}.`, 'success');
         setEditingEmployee(null);
       } else {
@@ -705,8 +698,7 @@ export default function HrPortal({
           uploadedFilesList: []
         };
 
-        const { error } = await supabase.from('employees').insert([newEmp]);
-        if (error) throw error;
+        await setDoc(fsDoc(firebaseFirestore, 'employees', newEmp.id), newEmp);
         toast(`✓ Created employee profile ${newEmp.name} in Cloud.`, 'success');
       }
 
@@ -739,11 +731,10 @@ export default function HrPortal({
       `Are you sure you want to resign and delete credentials for "${name}" (ID: ${empId})? Doing so will completely suspend and revoke all access.`,
       async () => {
         try {
-          const { error } = await supabase.from('employees').update({
+          await updateDoc(fsDoc(firebaseFirestore, 'employees', empId), {
             isResigned: true,
             status: 'revoked'
-          }).eq('id', empId);
-          if (error) throw error;
+          });
           toast(`Employee "${name}" marked as Resigned. Login revoked on Cloud.`, 'info');
         } catch (error: any) {
           toast("Failed to update resignation status on the server.", "error");
@@ -763,11 +754,10 @@ export default function HrPortal({
     const updatedList = list.map(f => f.key === docKey ? { ...f, status: 'verified' as const } : f);
 
     try {
-      const { error } = await supabase.from('employees').update({
+      await updateDoc(fsDoc(firebaseFirestore, 'employees', empId), {
         [docKey]: 'verified',
         uploadedFilesList: updatedList
-      }).eq('id', empId);
-      if (error) throw error;
+      } as any);
       toast(`✓ HR Verified submitted document "${docKey}" for Employee: ${empId}.`, 'success');
     } catch (error: any) {
       toast("Failed to update document verification on cloud.", "error");
@@ -799,16 +789,14 @@ export default function HrPortal({
     const remaining = list.filter(f => f.key !== docKey);
 
     try {
-      const { error: recycleError } = await supabase.from('recycle_bin').insert([binItem]);
-      if (recycleError) throw recycleError;
-      const { error } = await supabase.from('employees').update({
+      await addDoc(collection(firebaseFirestore, 'recycle_bin'), binItem);
+      await updateDoc(fsDoc(firebaseFirestore, 'employees', empId), {
         [docKey]: null,
         uploadedFilesList: remaining
-      }).eq('id', empId);
-      if (error) throw error;
+      } as any);
       toast(`✓ Document "${docTitle}" rejected and moved to global Cloud Recycle Bin.`, 'warning');
     } catch (error: any) {
-      toast("Error synchronizing document rejection to server.", "error");
+      toast("Error synchronizing document rejection to server.", 'error');
     }
   };
 
@@ -835,8 +823,7 @@ export default function HrPortal({
         overrideBy: 'HR Office Administrator',
         timestamp: new Date().toISOString()
       };
-      const { error } = await supabase.from('attendance_logs').insert([newLog]);
-      if (error) throw error;
+      await addDoc(collection(firebaseFirestore, 'attendance_logs'), newLog);
       toast(`✓ Manual Clock-In registered for ${emp.name}.`, 'success');
       setOverrideEmpId('');
     } catch (err: any) {
@@ -854,15 +841,14 @@ export default function HrPortal({
 
     try {
       if (editingAttendance) {
-        const { error } = await supabase.from('attendance_logs').update({
+        await updateDoc(fsDoc(firebaseFirestore, 'attendance_logs', editingAttendance.id), {
           employeeId: attEmpId,
           employeeName: attEmpName,
           date: attDate,
           time: attTime,
           isManualOverride: true,
           overrideBy: 'Managing Director'
-        }).eq('id', editingAttendance.id);
-        if (error) throw error;
+        });
         toast(`✓ Attendance log updated in Cloud!`, "success");
         setEditingAttendance(null);
       } else {
@@ -877,8 +863,7 @@ export default function HrPortal({
           overrideBy: 'Managing Director',
           timestamp: new Date().toISOString()
         };
-        const { error } = await supabase.from('attendance_logs').insert([newLog]);
-        if (error) throw error;
+        await addDoc(collection(firebaseFirestore, 'attendance_logs'), newLog);
         toast(`✓ Attendance manual record logged.`, "success");
       }
 
@@ -916,10 +901,8 @@ export default function HrPortal({
     };
 
     try {
-      const { error: recycleError } = await supabase.from('recycle_bin').insert([binItem]);
-      if (recycleError) throw recycleError;
-      const { error } = await supabase.from('attendance_logs').delete().eq('id', logId);
-      if (error) throw error;
+      await addDoc(collection(firebaseFirestore, 'recycle_bin'), binItem);
+      await deleteDoc(fsDoc(firebaseFirestore, 'attendance_logs', logId));
       toast(`✓ Attendance log moved to Recycle Bin.`, 'warning');
     } catch (error: any) {
       toast("Failed to send attendance log to storage bin.", "error");
@@ -933,10 +916,7 @@ export default function HrPortal({
 
     try {
       const nextState = !hr.verified;
-      const { error } = await supabase.from('hr_users').update({
-        verified: nextState
-      }).eq('id', hr.id);
-      if (error) throw error;
+      await updateDoc(fsDoc(firebaseFirestore, 'hr_users', hr.id), { verified: nextState });
       const label = hr.email;
       setRegisteredHrsList(prev => prev.map(item => item.id === hr.id ? { ...item, verified: nextState } : item));
       toast(`✓ HR ${label} ${nextState ? 'Approved' : 'Suspended'}!`, 'success');
@@ -955,8 +935,7 @@ export default function HrPortal({
     if (!hr || !hr.id) return;
 
     try {
-      const { error } = await supabase.from('hr_users').delete().eq('id', hr.id);
-      if (error) throw error;
+      await deleteDoc(fsDoc(firebaseFirestore, 'hr_users', hr.id));
       setRegisteredHrsList(prev => prev.filter(item => item.id !== hr.id));
       toast(`✓ HR account removed completely from active registry.`, 'success');
     } catch (err: any) {
@@ -984,14 +963,13 @@ export default function HrPortal({
       deliveredAt: new Date().toLocaleDateString('en-US') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    try {
-      const { error } = await supabase.from('payslips').insert([newPayslip]);
-      if (error) throw error;
-      toast(`✓ Payslip disbursed safely to employee ${payEmpId}.`, 'success');
-      setPayEmpId('');
-    } catch (err: any) {
-      toast(err?.message || "Payroll distribution pipeline error.", "error");
-    }
+        try {
+          await addDoc(collection(firebaseFirestore, 'payslips'), newPayslip as any);
+          toast(`✓ Payslip disbursed safely to employee ${payEmpId}.`, 'success');
+          setPayEmpId('');
+        } catch (err: any) {
+          toast(err?.message || "Payroll distribution pipeline error.", "error");
+        }
   };
 
   const handleSaveFormat = (e: React.FormEvent) => {
@@ -1034,12 +1012,10 @@ export default function HrPortal({
 
     try {
       if (editingFinance) {
-        const { error } = await supabase.from('finance_ledger').update(financeData).eq('id', editingFinance.id);
-        if (error) throw error;
+        await updateDoc(fsDoc(firebaseFirestore, 'finance_ledger', editingFinance.id), financeData as any);
         toast("✓ Transaction updated.", "success");
       } else {
-        const { error } = await supabase.from('finance_ledger').insert([financeData]);
-        if (error) throw error;
+        await addDoc(collection(firebaseFirestore, 'finance_ledger'), financeData as any);
         toast("✓ New record logged to Cloud.", "success");
       }
       
@@ -1064,8 +1040,7 @@ export default function HrPortal({
       "Are you absolutely sure you want to permanently purge this trace file? This is irrevocable.",
       async () => {
         try {
-          const { error } = await supabase.from('recycle_bin').delete().eq('id', binItemId);
-          if (error) throw error;
+          await deleteDoc(fsDoc(firebaseFirestore, 'recycle_bin', binItemId));
           toast("✓ Erased permanently from cloud servers.", "success");
         } catch (error: any) {
           toast(error?.message || "Communication failure with server.", "error");
@@ -1240,7 +1215,7 @@ export default function HrPortal({
                   </div>
                 )}
 
-                {/* reCAPTCHA container removed — using Supabase email/password auth */}
+                {/* reCAPTCHA container removed — using Firebase Auth */}
 
                 <button
                   type="submit"
@@ -1252,7 +1227,7 @@ export default function HrPortal({
               </form>
 
                 <div className="text-[10px] uppercase font-mono text-center text-slate-400 select-none">
-                🔒 Use a corporate email address and a strong password. Supabase will handle authentication.
+                🔒 Use a corporate email address and a strong password. Firebase Auth will handle authentication.
               </div>
               <div className="text-[10px] uppercase font-mono text-center text-slate-400 select-none">
                 🔍 Current host: {typeof window !== 'undefined' ? window.location.host : 'unknown'}

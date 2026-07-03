@@ -12,7 +12,9 @@ import {
 } from 'lucide-react';
 import CameraStream from './CameraStream';
 import DocumentViewer from './DocumentViewer';
-import { supabase } from '../supabaseClient';
+import { firebaseFirestore, firebaseStorage } from '../firebaseClient';
+import { collection, getDocs, query as fsQuery, orderBy as fsOrderBy, addDoc, deleteDoc, doc as fsDoc } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { generatePayslipPDF } from '../lib/pdfHelper';
 
 interface EmployeePortalProps {
@@ -78,22 +80,21 @@ export default function EmployeePortal({
   // Recycle Bin State (cloud-backed)
   const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>([]);
 
-  // Load recycle bin items for this employee from Supabase
+  // Load recycle bin items for this employee from Firestore
   useEffect(() => {
     let mounted = true;
     const fetchBin = async () => {
       try {
-        const { data, error } = await supabase.from('recycle_bin').select('*').order('createdAt', { ascending: false });
-        if (error) throw error;
+        const snap = await getDocs(fsQuery(collection(firebaseFirestore, 'recycle_bin'), fsOrderBy('createdAt', 'desc')));
         if (!mounted) return;
-        // filter client-side for items related to this employee (originalPath.employeeId)
-        const items = (data || []).filter((it: any) => {
-          try {
-            return it.originalpath && (it.originalpath.employeeId === employee.id || it.originalPath?.employeeId === employee.id);
-          } catch {
-            return false;
-          }
-        });
+        const items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+          .filter((it: any) => {
+            try {
+              return (it.originalPath && (it.originalPath.employeeId === employee.id || it.originalpath?.employeeId === employee.id));
+            } catch {
+              return false;
+            }
+          });
         setRecycleBin(items as RecycleBinItem[]);
       } catch (err: any) {
         console.error('Failed to load recycle bin', err);
@@ -162,12 +163,9 @@ export default function EmployeePortal({
     setUploadProgress(key);
     try {
       const path = `${employee.id}/${key}_${Date.now()}_${file.name}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage.from('uploads').upload(path, file, { upsert: true });
-      if (uploadError) throw uploadError;
-
-      // Get public URL for the uploaded file
-      const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(path);
-      const publicUrl = (publicData as any)?.publicUrl || '';
+      const storageReference = storageRef(firebaseStorage, path);
+      await uploadBytes(storageReference, file as Blob);
+      const publicUrl = await getDownloadURL(storageReference);
 
       const newFileObj: DocumentFile = {
         key,
@@ -181,7 +179,7 @@ export default function EmployeePortal({
 
       // Persist a document row for server-side indexing
       try {
-        await supabase.from('employee_documents').insert([{ employee_id: employee.id, key, label, name: file.name, file_type: file.type, storage_path: path, file_data: publicUrl }]);
+        await addDoc(collection(firebaseFirestore, 'employee_documents'), { employee_id: employee.id, key, label, name: file.name, file_type: file.type, storage_path: path, file_data: publicUrl });
       } catch (err) {
         console.warn('Failed to create employee_documents row', err);
       }
@@ -272,11 +270,11 @@ export default function EmployeePortal({
       uploadedFilesList: remaining
     });
 
-    // Persist bin item to Supabase
+    // Persist bin item to Firestore
     (async () => {
       try {
-        const { data: inserted, error } = await supabase.from('recycle_bin').insert([binItem]).select().single();
-        if (error) throw error;
+        const ref = await addDoc(collection(firebaseFirestore, 'recycle_bin'), binItem as any);
+        const inserted = { id: ref.id, ...(binItem as any) };
         setRecycleBin(prev => [inserted as RecycleBinItem, ...prev]);
         toast(`✓ File "${targetFile.label}" moved to Recycle Bin. You can restore it anytime.`, "warning");
       } catch (err: any) {
@@ -301,11 +299,10 @@ export default function EmployeePortal({
         uploadedFilesList: [...list, restoredFile]
       });
 
-      // Remove from Supabase recycle_bin
+      // Remove from Firestore recycle_bin
       (async () => {
         try {
-          const { error } = await supabase.from('recycle_bin').delete().eq('id', binItem.id);
-          if (error) throw error;
+          await deleteDoc(fsDoc(firebaseFirestore, 'recycle_bin', binItem.id));
           setRecycleBin(prev => prev.filter(item => item.id !== binItem.id));
           toast(`✓ Document "${restoredFile.label}" successfully restored from Bin!`, "success");
         } catch (err: any) {
@@ -324,8 +321,7 @@ export default function EmployeePortal({
   const handlePermanentDelete = (idx: string) => {
     (async () => {
       try {
-        const { error } = await supabase.from('recycle_bin').delete().eq('id', idx);
-        if (error) throw error;
+        await deleteDoc(fsDoc(firebaseFirestore, 'recycle_bin', idx));
         setRecycleBin(prev => prev.filter(item => item.id !== idx));
         toast("✓ Document permanently deleted from system nodes.", "info");
       } catch (err: any) {
